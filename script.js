@@ -290,18 +290,21 @@ async function playSentenceAudio(index) {
     currentSentenceAudio = new Audio(audioFilePath);
     currentSentenceAudio.volume = 0.8;
 
+    // 오디오 재생 완료 시 Promise resolve
     currentSentenceAudio.onended = () => {
+      console.log(`Audio playback completed for sentence ${index+1}`);
       currentSentenceAudio = null;
+      resolve(); // 오디오 재생이 완료되면 Promise 해결
     };
+    
     currentSentenceAudio.onerror = (e) => {
       console.error(`Error playing sentence audio: ${audioFilePath}`, e);
       currentSentenceAudio = null;
       reject(e);
     };
 
-    currentSentenceAudio.play().then(() => {
-        resolve();
-    }).catch(e => {
+    // 오디오 재생 시작 (promise는 재생이 시작될 때가 아니라 완료될 때 해결됨)
+    currentSentenceAudio.play().catch(e => {
       console.error(`Failed to play ${audioFilePath}`, e);
       currentSentenceAudio = null;
       reject(e);
@@ -3587,59 +3590,86 @@ function updateFireworks() {
         activeWordTranslation = null; if (wordTranslationTimeoutId) clearTimeout(wordTranslationTimeoutId);
         
         // 답변 문장으로 넘어갈 때는 이미지를 숨기지 않음 (다음 폭발 때까지 유지)
-        // 이미지는 다음 새로운 질문 문장이 시작될 때 사라짐// 폭발 후 자동 오디오 재생 (복제본 생성 없음)
+        // 이미지는 다음 새로운 질문 문장이 시작될 때 사라짐        // 폭발 후 자동 오디오 재생 (복제본 생성 없음)
         console.log("DEBUG: Checking auto audio playback - playAudioForThisSentence:", playAudioForThisSentence);
         if (playAudioForThisSentence) {
-            let audioIndexToPlay = null;
+            let questionAudioIndex = null;
+            let answerAudioIndex = null;
 
-            if (roleOfNewSentence === 'question' && currentQuestionSentenceIndex !== null) {
-                audioIndexToPlay = currentQuestionSentenceIndex;
+            // 항상 질문과 답변 인덱스를 모두 확인
+            if (currentQuestionSentenceIndex !== null) {
+                questionAudioIndex = currentQuestionSentenceIndex;
+                console.log("DEBUG: Question audio index available:", questionAudioIndex);
+            }
+            
+            if (currentAnswerSentenceIndex !== null) {
+                answerAudioIndex = currentAnswerSentenceIndex;
+                console.log("DEBUG: Answer audio index available:", answerAudioIndex);
+            }
+            
+            let audioIndexToPlay = null;
+            // 홀수 문장(질문)이 폭발한 경우, 질문 오디오 재생 후 답변 오디오도 재생
+            if (roleOfNewSentence === 'question' && questionAudioIndex !== null) {
+                audioIndexToPlay = questionAudioIndex;
                 console.log("DEBUG: Auto audio for question, index:", audioIndexToPlay);
-            } else if (roleOfNewSentence === 'answer' && currentAnswerSentenceIndex !== null) {
-                audioIndexToPlay = currentAnswerSentenceIndex;
+            } else if (roleOfNewSentence === 'answer' && answerAudioIndex !== null) {
+                audioIndexToPlay = answerAudioIndex;
                 console.log("DEBUG: Auto audio for answer, index:", audioIndexToPlay);
             }            if (audioIndexToPlay !== null) {
                 console.log("DEBUG: Setting auto audio timeout for index:", audioIndexToPlay);
                 setTimeout(() => {
                     console.log("DEBUG: Auto audio timeout triggered, playing audio for index:", audioIndexToPlay);
                     window.speechSynthesis.cancel();
-                    playSentenceAudio(audioIndexToPlay)
-                        .then(() => {
-                            // 오디오 재생 완료 후 바운스 애니메이션 트리거
-                            console.log("Auto audio playback completed for sentence:", audioIndexToPlay);
+                    
+                    // 오디오 재생 함수
+                    const playAudioWithBounce = (index, isQuestion) => {
+                        // 먼저 바운스 애니메이션을 실행 (오디오 재생 전에)
+                        if (isQuestion) {
+                            // 첫번째 문장(질문): "의문사"와 "조동사+주어"를 바운스
+                            console.log("🏀 Triggering bounce animations for question sentence immediately");
                             
-                            // 음성 읽기 시 바운스 애니메이션 트리거
-                            if (roleOfNewSentence === 'question') {
-                                // 첫번째 문장(질문): "의문사"와 "조동사+주어"를 바운스
-                                console.log("🏀 Triggering bounce animations for question sentence during auto TTS");
+                            // 의문사 바로 바운스
+                            if (currentQuestionSentence) {
+                                triggerBounceAnimationForWords(currentQuestionSentence, true); // 의문사
                                 
-                                // 의문사 먼저 바운스 (질문 읽기 타이밍에 맞춤)
-                                setTimeout(() => {
-                                    if (currentQuestionSentence) {
-                                        triggerBounceAnimationForWords(currentQuestionSentence, true); // 의문사
-                                    }
-                                }, 100); // 음성 시작 후 100ms 후 의문사 바운스
-                                
-                                // 조동사+주어는 조금 더 지연해서 바운스 (읽기 진행에 맞춤)
+                                // 조동사+주어는 약간 지연해서 바운스
                                 setTimeout(() => {
                                     if (currentQuestionSentence) {
                                         triggerBounceAnimationForWords(currentQuestionSentence, false); // 조동사+주어
                                     }
-                                }, 600); // 음성 시작 후 600ms 후 조동사+주어 바운스
-                                
-                            } else if (roleOfNewSentence === 'answer') {
-                                // 두번째 문장(답변): "조동사"를 바운스
-                                console.log("🏀 Triggering bounce animation for answer sentence during auto TTS");
-                                
-                                // 답변에서 조동사 바운스 (답변 읽기 타이밍에 맞춤)
-                                setTimeout(() => {
-                                    if (currentAnswerSentence) {
-                                        triggerBounceAnimationForWords(currentAnswerSentence, false); // 조동사 바운스
-                                    }
-                                }, 300); // 음성 시작 후 300ms 후 조동사 바운스
+                                }, 300); // 짧은 지연 후 조동사+주어 바운스
                             }
-                        })
-                        .catch(err => console.error("Error in auto audio playback:", err));
+                        } else {
+                            // 두번째 문장(답변): "조동사"를 바운스
+                            console.log("🏀 Triggering bounce animation for answer sentence immediately");
+                            
+                            // 답변에서 조동사 바로 바운스
+                            if (currentAnswerSentence) {
+                                triggerBounceAnimationForWords(currentAnswerSentence, false); // 조동사 바운스
+                            }
+                        }
+                        
+                        // 그 후 오디오 재생
+                        return playSentenceAudio(index)
+                            .then(() => {
+                                console.log(`Auto audio playback completed for ${isQuestion ? 'question' : 'answer'} sentence:`, index);
+                            });
+                    };
+                    
+                    // 질문 문장이 폭발한 경우, 질문 재생 후 답변도 재생
+                    if (roleOfNewSentence === 'question' && currentAnswerSentenceIndex !== null) {
+                        playAudioWithBounce(audioIndexToPlay, true)
+                            .then(() => {
+                                // 질문 재생 완료 후 즉시 답변 재생 (지연 없음)
+                                console.log("Playing answer audio immediately after question:", currentAnswerSentenceIndex);
+                                return playAudioWithBounce(currentAnswerSentenceIndex, false);
+                            })
+                            .catch(err => console.error("Error in auto audio playback:", err));
+                    } else {
+                        // 답변 문장이 폭발한 경우 또는 다른 경우는 단순히 하나만 재생
+                        playAudioWithBounce(audioIndexToPlay, roleOfNewSentence === 'question')
+                            .catch(err => console.error("Error in auto audio playback:", err));
+                    }
                 }, 450);
             } else {
                 console.log("DEBUG: No audio index to play");
@@ -4133,37 +4163,37 @@ function handleCanvasInteraction(clientX, clientY, event) {
           console.log("  - Clone Created:", cloneCreatedForCurrentQuestion);
           console.log("  - Question Sentence:", currentQuestionSentence);
           
+          // 오디오 재생 전에 애니메이션 트리거 (기존 기능 복원)
+          // 첫 번째 터치인지 확인 (복제본이 아직 생성되지 않은 경우)
+          if (!cloneCreatedForCurrentQuestion && currentQuestionSentence && currentQuestionSentenceIndex !== null) {
+              console.log("🎯 First touch - triggering wave animation with clone generation");
+              // 첫 번째 터치: 복제본을 생성하는 wave 애니메이션 트리거
+              triggerSentenceWordAnimation(
+                  currentQuestionSentence,
+                  true, // isQuestion
+                  centerSentenceWordRects,
+                  ctx,
+                  300 // AUX_ANIMATION_DELAY_QUESTION 과 동일한 지연
+              );
+          } else if (cloneCreatedForCurrentQuestion && currentQuestionSentence) {
+              console.log("🏀 Subsequent touch - triggering bounce animation only");
+              // 두 번째 이후 터치: 바운스 애니메이션 트리거 (복제본 생성 없음)
+              // 의문사 단어들 먼저 바운스
+              triggerBounceAnimationForWords(currentQuestionSentence, true);
+              // 100ms 지연 후 조동사+주어 단어들 바운스
+              setTimeout(() => {
+                  triggerBounceAnimationForWords(currentQuestionSentence, false);
+              }, 100);
+          } else {
+              console.log("⚠️ Unexpected state in question play button handler");
+              console.log("  - cloneCreated:", cloneCreatedForCurrentQuestion);
+              console.log("  - currentQuestion:", !!currentQuestionSentence);
+              console.log("  - questionIndex:", currentQuestionSentenceIndex);
+          }
+          
+          // 그 후 오디오 재생
           window.speechSynthesis.cancel();
           playSentenceAudio(currentQuestionSentenceIndex)
-              .then(() => {
-                  // 첫 번째 터치인지 확인 (복제본이 아직 생성되지 않은 경우)
-                  // 추가 안전장치: 현재 질문이 유효한지도 확인
-                  if (!cloneCreatedForCurrentQuestion && currentQuestionSentence && currentQuestionSentenceIndex !== null) {
-                      console.log("🎯 First touch - triggering wave animation with clone generation");
-                      // 첫 번째 터치: 복제본을 생성하는 wave 애니메이션 트리거
-                      triggerSentenceWordAnimation(
-                          currentQuestionSentence,
-                          true, // isQuestion
-                          centerSentenceWordRects,
-                          ctx,
-                          300 // AUX_ANIMATION_DELAY_QUESTION 과 동일한 지연
-                      );
-                                    } else if (cloneCreatedForCurrentQuestion && currentQuestionSentence) {
-                      console.log("🏀 Subsequent touch - triggering bounce animation only");
-                      // 두 번째 이후 터치: 바운스 애니메이션 트리거 (복제본 생성 없음)
-                      // 의문사 단어들 먼저 바운스
-                      triggerBounceAnimationForWords(currentQuestionSentence, true);
-                      // 100ms 지연 후 조동사+주어 단어들 바운스
-                      setTimeout(() => {
-                          triggerBounceAnimationForWords(currentQuestionSentence, false);
-                      }, 100);
-                  } else {
-                      console.log("⚠️ Unexpected state in question play button handler");
-                      console.log("  - cloneCreated:", cloneCreatedForCurrentQuestion);
-                      console.log("  - currentQuestion:", !!currentQuestionSentence);
-                      console.log("  - questionIndex:", currentQuestionSentenceIndex);
-                  }
-              })
               .catch(err => console.error("Error playing question sentence audio from play button:", err));
       }
       event.preventDefault(); setTimeout(() => { isActionLocked = false; }, 200); return;
@@ -4179,18 +4209,18 @@ function handleCanvasInteraction(clientX, clientY, event) {
       cloneCreatedForCurrentAnswer = false; // 답변 클론 플래그 리셋
 
       if (currentAnswerSentenceIndex !== null) {
+          // 오디오 재생 전에 애니메이션 트리거 (기존 기능 복원)
+          triggerSentenceWordAnimation(
+              currentAnswerSentence,
+              false, // isQuestion
+              centerSentenceWordRects,
+              ctx,
+              300 // AUX_ANIMATION_DELAY 와 동일한 지연
+          );
+          
+          // 그 후 오디오 재생
           window.speechSynthesis.cancel();
           playSentenceAudio(currentAnswerSentenceIndex)
-              .then(() => {
-                  // 오디오 시작 후 애니메이션 트리거
-                  triggerSentenceWordAnimation(
-                      currentAnswerSentence,
-                      false, // isQuestion
-                      centerSentenceWordRects,
-                      ctx,
-                      300 // AUX_ANIMATION_DELAY 와 동일한 지연
-                  );
-              })
               .catch(err => console.error("Error playing answer sentence audio from play button:", err));
       }
       event.preventDefault();
