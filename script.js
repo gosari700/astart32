@@ -262,12 +262,114 @@ const bulletImg = new Image();
 bulletImg.src = 'images/bubble_bullet.png';
 
 const bgmFiles = [
-  'sounds/background.mp3'
+  'sounds/background.mp3',
+  'sounds/background1.mp3', 
+  'sounds/background2.mp3',
+  'sounds/background3.mp3'
 ];
+
 let bgmIndex = 0;
-let bgmAudio = new Audio(bgmFiles[bgmIndex]);
-bgmAudio.volume = 0.021;
-bgmAudio.loop = true;
+let bgmAudio = null;
+let bgmPlaylist = [];
+let currentBgmIndex = 0;
+let isBgmInitialized = false;
+
+// 배경음악 순차 재생 함수들 추가
+async function initializeBgmPlaylist() {
+  console.log("배경음악 목록 초기화 시작");
+  bgmPlaylist = [];
+  
+  for (let i = 0; i < bgmFiles.length; i++) {
+    try {
+      const response = await fetch(bgmFiles[i], { method: 'HEAD' });
+      if (response.ok) {
+        bgmPlaylist.push(bgmFiles[i]);
+        console.log(`배경음악 발견: ${bgmFiles[i]}`);
+      }
+    } catch (error) {
+      console.log(`배경음악 파일 없음: ${bgmFiles[i]}`);
+    }
+  }
+  
+  for (let i = 4; i <= 20; i++) {
+    const fileName = `sounds/background${i}.mp3`;
+    try {
+      const response = await fetch(fileName, { method: 'HEAD' });
+      if (response.ok) {
+        bgmPlaylist.push(fileName);
+        console.log(`추가 배경음악 발견: ${fileName}`);
+      }
+    } catch (error) {
+      // 파일이 없으면 무시
+    }
+  }
+  
+  if (bgmPlaylist.length === 0) {
+    bgmPlaylist = ['sounds/background.mp3'];
+  }
+  
+  isBgmInitialized = true;
+  currentBgmIndex = 0;
+}
+
+function playNextBgm() {
+  if (!isBgmInitialized || bgmPlaylist.length === 0) return;
+  
+  if (bgmAudio) {
+    bgmAudio.pause();
+    bgmAudio.removeEventListener('ended', playNextBgm);
+  }
+  
+  currentBgmIndex = (currentBgmIndex + 1) % bgmPlaylist.length;
+  console.log(`다음 배경음악 재생: ${bgmPlaylist[currentBgmIndex]}`);
+  
+  bgmAudio = new Audio(bgmPlaylist[currentBgmIndex]);
+  bgmAudio.volume = isMuted ? 0 : 0.021;
+  bgmAudio.loop = false;
+  bgmAudio.addEventListener('ended', playNextBgm);
+  
+  if (isGameRunning && !isGamePaused) {
+    bgmAudio.play().catch(error => console.error('배경음악 재생 오류:', error));
+  }
+}
+
+async function startBgmPlayback() {
+  if (!isBgmInitialized) {
+    await initializeBgmPlaylist();
+  }
+  
+  if (bgmAudio) {
+    bgmAudio.pause();
+    bgmAudio.removeEventListener('ended', playNextBgm);
+  }
+  
+  bgmAudio = new Audio(bgmPlaylist[currentBgmIndex]);
+  bgmAudio.volume = isMuted ? 0 : 0.021;
+  bgmAudio.loop = false;
+  bgmAudio.addEventListener('ended', playNextBgm);
+  
+  bgmAudio.play().catch(error => console.error('배경음악 재생 오류:', error));
+}
+
+function stopBgmPlayback() {
+  if (bgmAudio) {
+    bgmAudio.pause();
+    bgmAudio.removeEventListener('ended', playNextBgm);
+    bgmAudio.currentTime = 0;
+  }
+}
+
+function pauseBgmPlayback() {
+  if (bgmAudio && !bgmAudio.paused) {
+    bgmAudio.pause();
+  }
+}
+
+function resumeBgmPlayback() {
+  if (bgmAudio && bgmAudio.paused && !isMuted) {
+    bgmAudio.play().catch(error => console.error('배경음악 재개 오류:', error));
+  }
+}
 
 const volumeBtn = document.getElementById('volumeBtn');
 let isMuted = false;
@@ -319,7 +421,7 @@ volumeBtn.onclick = function () {
   if (bgmAudio) {
     bgmAudio.volume = targetVolume;
     if (!isMuted && bgmAudio.paused && isGameRunning && !isGamePaused) {
-      bgmAudio.play().catch(e => console.error("BGM play on unmute error:", e));
+      resumeBgmPlayback();
     }
   }
   updateVolumeIcon();
@@ -4027,21 +4129,8 @@ function startGame() {
   isGamePaused = false;
   document.getElementById('pauseBtn').textContent = 'PAUSE';
   
-  // 배경 음악 설정
-  if (bgmAudio) { 
-    bgmAudio.pause(); 
-  }
-  bgmAudio = new Audio(bgmFiles[bgmIndex]);
-  bgmAudio.volume = isMuted ? 0 : 0.021; 
-  bgmAudio.loop = true;
-  
-  // 배경 음악 재생
-  const playPromise = bgmAudio.play();
-  if (playPromise !== undefined) {
-    playPromise.catch(error => { 
-      console.error('BGM play error on start:', error); 
-    });
-  }
+  // 배경 음악 설정 및 재생
+  startBgmPlayback();
   if (coffeeSteamVideo && coffeeVideoAssetReady) {
     coffeeSteamVideo.currentTime = 0;
     const coffeePlayPromise = coffeeSteamVideo.play();
@@ -4095,15 +4184,13 @@ function togglePause() {
   const pauseButton = document.getElementById('pauseBtn');
   if (isGamePaused) {
     pauseButton.textContent = 'RESUME';
-    if (bgmAudio && !bgmAudio.paused) bgmAudio.pause();
+    pauseBgmPlayback();
     if (coffeeSteamVideo && !coffeeSteamVideo.paused) coffeeSteamVideo.pause();
     window.speechSynthesis.cancel();
     if (currentSentenceAudio) currentSentenceAudio.pause();
   } else {
     pauseButton.textContent = 'PAUSE';
-    if (bgmAudio && bgmAudio.paused && !isMuted) {
-        bgmAudio.play().catch(e => console.error("BGM resume error:", e));
-    }
+    resumeBgmPlayback();
     if (coffeeSteamVideo && coffeeSteamVideo.paused && coffeeVideoAssetReady) {
         coffeeSteamVideo.play().catch(error => console.error("Error resuming coffee steam video:", error));
     }
@@ -4119,7 +4206,7 @@ function togglePause() {
 function stopGame() {
   isGameRunning = false; isGamePaused = false;
   document.getElementById('pauseBtn').textContent = 'PAUSE';
-  if (bgmAudio) bgmAudio.pause();
+  stopBgmPlayback();
   if (coffeeSteamVideo && !coffeeSteamVideo.paused) coffeeSteamVideo.pause();
   window.speechSynthesis.cancel();
   if (currentSentenceAudio) {
@@ -4594,6 +4681,13 @@ window.addEventListener('load', () => {
     localStorage.setItem('sentenceIndex', sentenceIndex.toString());
     if (bgmFiles && bgmFiles.length > 0) {
         console.log("BGM object initialized on load.");
+        
+        // 배경음악 목록 초기화
+        initializeBgmPlaylist().then(() => {
+            console.log("배경음악 목록 초기화 완료");
+        }).catch(err => {
+            console.error("배경음악 목록 초기화 실패:", err);
+        });
     }
     getVoicesReliably().then(voices => {
         if(voices.length > 0) console.log("Voices pre-warmed successfully.");
